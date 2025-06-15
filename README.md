@@ -1,8 +1,7 @@
 # TeleHealthSol - Web3 Telemedicine Platform
 
-**Live Demo:** [Add URL]  
-**Video Demo:** [Add URL]  
-**GitHub:** [Add URL]
+**Live Demo:** [[Demo On Aimpact](https://a0805ea7-3983-45a3-8c12-a0750c4f57a5.deployment.aimpact.dev/)]
+**GitHub:** [[Github Repo](https://github.com/sabbCodes/telehealthAIMPACT)]
 
 ## Overview
 
