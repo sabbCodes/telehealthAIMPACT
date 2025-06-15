@@ -1,0 +1,312 @@
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import {
+  Calendar,
+  Users,
+  DollarSign,
+  Clock,
+  MessageCircle,
+  LogOut,
+} from "lucide-react";
+import { Card } from "../components/ui/Card";
+import { Button } from "../components/ui/Button";
+import { useAuthStore } from "../store/useAuthStore";
+import { supabase, supabaseAdmin } from "../lib/supabase";
+import { toast } from "react-hot-toast";
+import { SessionsList } from "../components/sessions/SessionsList";
+
+interface DoctorData {
+  id: string;
+  name: string;
+  email: string;
+  doctor_profiles: {
+    specialty: string;
+    experience: number;
+    location: string;
+    bio: string;
+    education: string;
+    consultation_fee: number;
+    is_verified: boolean;
+  }[];
+}
+
+export const DoctorDashboard: React.FC = () => {
+  const navigate = useNavigate();
+  const { user, setUser } = useAuthStore();
+  const [doctorData, setDoctorData] = useState<DoctorData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [stats, setStats] = useState({
+    totalSessions: 0,
+    totalEarnings: 0,
+    pendingSessions: 0,
+    completedSessions: 0,
+  });
+
+  useEffect(() => {
+    if (user) {
+      fetchDoctorData();
+      fetchSessions();
+    }
+  }, [user]);
+
+  const fetchDoctorData = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select(
+          `
+          id,
+          name,
+          email,
+          doctor_profiles (
+            specialty,
+            experience,
+            location,
+            bio,
+            education,
+            consultation_fee,
+            is_verified
+          )
+        `
+        )
+        .eq("id", user?.id)
+        .single();
+
+      if (error) throw error;
+
+      setDoctorData(data);
+    } catch (error: any) {
+      console.error("Error fetching doctor data:", error);
+      toast.error("Failed to load profile data");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchSessions = async () => {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from("sessions")
+        .select(
+          `
+          *,
+          patient:patient_id (
+            id,
+            name
+          )
+        `
+        )
+        .eq("doctor_id", user?.id)
+        .order("scheduled_at", { ascending: false });
+
+      if (error) throw error;
+
+      console.log("Doctor sessions data:", data); // Debug log
+
+      setSessions(data || []);
+
+      // Calculate stats
+      const totalSessions = data.length;
+      const totalEarnings = data.reduce(
+        (sum, session) => sum + (session.payment_amount || 0),
+        0
+      );
+      const pendingSessions = data.filter(
+        (s) => s.status === "CONFIRMED" && new Date(s.scheduled_at) > new Date()
+      ).length;
+      const completedSessions = data.filter(
+        (s) => s.status === "COMPLETED"
+      ).length;
+
+      console.log("Doctor stats:", { totalSessions, totalEarnings, pendingSessions, completedSessions }); // Debug log
+
+      setStats({
+        totalSessions,
+        totalEarnings,
+        pendingSessions,
+        completedSessions,
+      });
+    } catch (error: any) {
+      console.error("Error fetching sessions:", error);
+      toast.error("Failed to load sessions");
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "PENDING":
+        return "text-yellow-400";
+      case "CONFIRMED":
+        return "text-blue-400";
+      case "COMPLETED":
+        return "text-green-400";
+      case "CANCELLED":
+        return "text-red-400";
+      default:
+        return "text-gray-400";
+    }
+  };
+
+  const handleStartChat = async (sessionId: string) => {
+    try {
+      navigate(`/dashboard/doctor/chat/${sessionId}`);
+    } catch (error) {
+      console.error("Error starting chat:", error);
+      toast.error("Failed to start chat session");
+    }
+  };
+
+  const handleCompleteSession = async (sessionId: string) => {
+    try {
+      const { error } = await supabaseAdmin
+        .from("sessions")
+        .update({ status: "COMPLETED" })
+        .eq("id", sessionId);
+
+      if (error) throw error;
+
+      toast.success("Session marked as completed");
+      fetchSessions(); // Refresh the list
+    } catch (error: any) {
+      console.error("Error completing session:", error);
+      toast.error("Failed to complete session");
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+      navigate("/signin");
+    } catch (error) {
+      console.error("Error signing out:", error);
+      toast.error("Failed to sign out");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-900 p-6">
+      <div className="max-w-7xl mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8"
+        >
+          <div className="flex justify-between items-center">
+            <div>
+          <h1 className="text-3xl font-bold text-white mb-2">
+                Welcome back, Dr. {doctorData?.name}
+          </h1>
+          <p className="text-gray-400">Here's your practice overview</p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={handleSignOut}
+              className="flex items-center space-x-2"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Logout</span>
+            </Button>
+          </div>
+        </motion.div>
+
+        {/* Stats Grid */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+          className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8"
+          >
+            <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm">Total Sessions</p>
+                <h3 className="text-2xl font-bold text-white">
+                  {stats.totalSessions}
+                </h3>
+              </div>
+                <div className="bg-blue-600/20 p-3 rounded-lg">
+                  <Calendar className="w-6 h-6 text-blue-400" />
+                </div>
+                </div>
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm">Total Earnings</p>
+                <h3 className="text-2xl font-bold text-white">
+                  {stats.totalEarnings} SOL
+                </h3>
+              </div>
+                <div className="bg-green-600/20 p-3 rounded-lg">
+                  <DollarSign className="w-6 h-6 text-green-400" />
+                </div>
+                </div>
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm">Pending</p>
+                <h3 className="text-2xl font-bold text-white">
+                  {stats.pendingSessions}
+                </h3>
+              </div>
+                <div className="bg-yellow-600/20 p-3 rounded-lg">
+                  <Clock className="w-6 h-6 text-yellow-400" />
+                </div>
+                </div>
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm">Completed</p>
+                <h3 className="text-2xl font-bold text-white">
+                  {stats.completedSessions}
+                </h3>
+              </div>
+                <div className="bg-purple-600/20 p-3 rounded-lg">
+                <MessageCircle className="w-6 h-6 text-purple-400" />
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+
+        {/* Sessions List */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+        >
+          <SessionsList role="DOCTOR" />
+        </motion.div>
+      </div>
+    </div>
+  );
+};
